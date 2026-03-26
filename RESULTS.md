@@ -311,12 +311,69 @@ Notebook standalone `notebook_annitia.ipynb` :
 
 ---
 
+### EXP-14a — SSM mimo_rank=4, 200 epochs, seed=42
+
+| Fold | Hép val | Décès val | Score val |
+|------|---------|-----------|-----------|
+| 1 | 0.8947 | 0.9213 | 0.9027 |
+| 2 | 0.7752 | 0.8899 | 0.8097 |
+| 3 | 0.8092 | 0.9078 | 0.8387 |
+| 4 | 0.8395 | 0.9316 | 0.8683 |
+| 5 | 0.8767 | 0.9528 | 0.8993 |
+| **OOF global** | **0.8377** | **0.9197** | **0.8422** |
+
+> Légèrement en dessous de EXP-12-bis (0.8464). Seed 42 sous-optimal.
+
+---
+
+### EXP-14b — SSM mimo_rank=4, 200 epochs, seed=123
+
+| Fold | Hép val | Décès val | Score val |
+|------|---------|-----------|-----------|
+| 1 | 0.9459 | 0.9506 | 0.9473 |
+| 2 | 0.8008 | 0.9272 | 0.8387 |
+| 3 | 0.8462 | 0.9448 | 0.8758 |
+| 4 | 0.9537 | 0.9654 | 0.9572 |
+| 5 | 0.8957 | 0.9744 | 0.9193 |
+| **OOF global** | **0.8555** | **0.9104** | **0.8720** |
+
+> ✅ Nettement meilleur que seed 42 ! Variance inter-seed significative.
+
+---
+
+### EXP-14c — SSM mimo_rank=4, 200 epochs, seed=777
+
+| Fold | Hép val | Décès val | Score val |
+|------|---------|-----------|-----------|
+| 1 | 0.8150 | 0.9327 | 0.8503 |
+| 2 | 0.8425 | 0.8744 | 0.8521 |
+| 3 | 0.8498 | 0.9406 | 0.8771 |
+| 4 | 0.9319 | 0.9082 | 0.9248 |
+| 5 | 0.8801 | 0.9411 | 0.8984 |
+| **OOF global** | **0.8297** | **0.9076** | **0.8531** |
+
+---
+
+### EXP-14-MULTI — Ensemble 3 seeds (42 + 123 + 777), 200 epochs ✅ BEST
+
+OOF SSM 3-seed (rank-norm moyen sur OOF) :
+- hep = **0.8865** | dth = **0.9284** | score = **0.8991** ✅✅ >> XGBoost seul (0.8823)
+
+OOF SSM 2-seed (42 + 123) pour référence :
+- score = **0.8849** ✅ > XGBoost seul
+
+Fichiers de soumission 3-seed :
+- `data/submission_200ep_3s_ssm100.csv` — **SSM 3-seed seul** — MEILLEUR CANDIDAT
+- `data/submission_200ep_3s_ssm{20,30,40,50,70}.csv` — ensembles SSM+XGB
+
+---
+
 ## TODO final
 | ID | Tâche | Priorité |
 |----|-------|----------|
-| SUB-3 | Soumettre `submission_ssm20_xgb80_v2.csv` pour valider l'apport du SSM corrigé | haut |
-| EXP-14 | SSM 150-200 epochs (mimo4, no conv2d) — exploration saturation | moyen |
-| EXP-15 | Ensemble optimal sur OOF avec XGBoost (quand CSV data accessible) | moyen |
+| SUB-4 | ⭐ Soumettre `submission_200ep_3s_ssm100.csv` (SSM 3-seed, OOF=0.8991) | URGENT |
+| SUB-5 | Soumettre `submission_200ep_3s_ssm50.csv` (50/50 ensemble) | haut |
+| EXP-15 | Ensemble optimal SSM + XGB sur OOF (nécessite XGB OOF en numpy) | moyen |
 
 ---
 

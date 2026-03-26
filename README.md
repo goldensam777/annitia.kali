@@ -1,231 +1,247 @@
-# Annitia
+# ANNITIA — Prédiction de survie MASLD par K-Mamba SSM
 
-Deep survival analysis for MASLD (Metabolic dysfunction-Associated Steatotic Liver Disease) using Mamba State Space Models.
+**Challenge ANNITIA par TRUSTII / ICAN** — Prédire la progression de la maladie stéatosique hépatique métabolique (MASLD) à partir de données longitudinales cliniques.
 
-[![Build](https://img.shields.io/badge/build-CMake-blue)](CMakeLists.txt)
-[![Language](https://img.shields.io/badge/language-C11-blue.svg)](src/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Language: C11](https://img.shields.io/badge/Language-C11-blue.svg)](src/)
+[![Build: CMake](https://img.shields.io/badge/Build-CMake-blue.svg)](CMakeLists.txt)
 
-## Overview
+**Auteur :** YEVI Mawuli Peniel Samuel — IFRI-UAC (Bénin)
 
-**Annitia** is a high-performance C implementation of a dual-output survival model that predicts:
-- **Hepatic event risk** — progression to severe liver outcomes
-- **Death risk** — all-cause mortality
+---
 
-The model processes irregular time-series clinical data using **Mamba State Space Models** (via [k-mamba](https://github.com/goldensam777/k-mamba)) with:
-- Selective state space layers for long-range dependencies
-- Cox proportional hazards loss + differentiable ranking loss
-- C-index evaluation for censored survival data
+## Résultats
 
-## Features
+| Modèle | OOF C-hep | OOF C-dth | Score OOF |
+|--------|-----------|-----------|-----------|
+| Cox ElasticNet (baseline) | ~0.77 | ~0.72 | ~0.75 |
+| XGBoost Cox multi-seed | 0.8851 | 0.8760 | 0.8823 |
+| K-Mamba SSM mimo4 100ep | 0.8152 | 0.9193 | 0.8464 |
+| **K-Mamba SSM 3-seed 200ep** | **0.8865** | **0.9284** | **0.8991** ✅ |
 
-- **Architecture**: Mamba SSM with feature projection, temporal encoding, and dual survival heads
-- **Input**: 18 clinical features (12 dynamic + 6 static) across up to 22 visits
-- **Training**: Combined Cox + ranking loss with Adam optimizer
-- **Evaluation**: Concordance index (C-index) for both hepatic and death endpoints
-- **Data pipeline**: CSV → binary preprocessing for fast loading
-- **Backend**: [optimatrix](https://github.com/goldensam777/optimatrix) (AVX2 assembly kernels via k-mamba submodule) + OpenBLAS for BLAS operations
+**Métrique :** `Score = 0.7 × C-index_hépatique + 0.3 × C-index_décès`
 
-## Requirements
-
-- **Compiler**: GCC ≥ 11 or Clang ≥ 14
-- **Build**: CMake ≥ 3.18, NASM ≥ 2.15 (for AVX2 kernels)
-- **Math**: OpenBLAS
-- **Optional**: CUDA ≥ 12.0 (for GPU acceleration)
-
-## Quick Start
-
-### 1. Clone with Submodules
-
-```bash
-git clone --recursive https://github.com/goldensam777/annitia.kali.git
-cd annitia.kali
-```
-
-If you already cloned without submodules:
-```bash
-git submodule update --init --recursive
-```
-
-### 2. Build
-
-```bash
-# CPU-only build
-cmake -B build -DANNITIA_BUILD_TESTS=ON
-cmake --build build -j
-
-# With CUDA support (optional)
-cmake -B build -DANNITIA_BUILD_CUDA=ON -DANNITIA_BUILD_TESTS=ON
-cmake --build build -j
-```
-
-### 3. Run Tests
-
-```bash
-ctest --test-dir build
-```
-
-### 4. Train a Model
-
-```bash
-# Preprocess CSV data to binary format
-./build/annitia_preprocess data/train.csv data/train.bin data/norm.bin
-
-# Train
-./build/annitia_train \
-    --train data/train.bin \
-    --val data/val.bin \
-    --out checkpoint.bin \
-    --dim 64 --state 16 --layers 2 \
-    --epochs 50 --batch 32 \
-    --lr 1e-3 --wd 1e-4
-```
-
-### 5. Generate Predictions
-
-```bash
-./build/annitia_predict \
-    --model checkpoint.bin \
-    --data data/test.bin \
-    --ids data/test_ids.bin \
-    --out submission.csv
-```
-
-## CLI Reference
-
-### annitia_preprocess
-
-Converts CSV to optimized binary format for training.
-
-```bash
-./annitia_preprocess <input.csv> <output.bin> <norm.bin>
-```
-
-### annitia_train
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--train` | Training data (.bin) | required |
-| `--val` | Validation data (.bin) | required |
-| `--out` | Checkpoint output path | `checkpoint.bin` |
-| `--dim D` | Model dimension | 64 |
-| `--state N` | SSM state size | 16 |
-| `--layers L` | Number of MambaBlocks | 2 |
-| `--mimo R` | MIMO rank (0/1 = SISO) | 1 |
-| `--epochs E` | Training epochs | 50 |
-| `--batch B` | Batch size | 32 |
-| `--lr` | Learning rate | 1e-3 |
-| `--wd` | Weight decay | 1e-4 |
-| `--seed` | Random seed | 42 |
-
-### annitia_predict
-
-```bash
-./annitia_predict --model <checkpoint.bin> --data <test.bin> [options]
-```
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--model` | Trained checkpoint | required |
-| `--data` | Test data (.bin) | required |
-| `--ids` | Patient IDs file | none |
-| `--out` | Output CSV path | `submission.csv` |
-
-## Data Format
-
-### Input Features (18 total)
-
-**Dynamic features** (12, measured at each visit):
-- BMI, ALT, AST, Bilirubin, Cholesterol, GGT
-- Fasting glucose, Platelets, Triglycerides
-- Aixplorer, FibroTest, FibroScan
-
-**Static features** (6, repeated at each timestep):
-- Gender, T2DM, Hypertension, Dyslipidaemia
-- Bariatric surgery, Bariatric surgery age
-
-### Binary Format
-
-The `.bin` files use a custom binary format with:
-- Magic header (`MASL` = `0x4D41534Cu`)
-- Normalized float32 features `[N, T, F]`
-- Binary masks for missing values
-- Time gaps between visits
-- Survival targets (time + event indicators)
+---
 
 ## Architecture
 
+Ce dépôt implémente deux modèles complémentaires :
+
+### 1. XGBoost Cox (features temporelles enrichies)
+
+Chaque patient est représenté par **162 features** extraites de ses trajectoires longitudinales :
+
+| Statistique | Description |
+|-------------|-------------|
+| `last`, `first` | Valeur à la dernière / première visite |
+| `max`, `min`, `mean`, `std` | Statistiques globales |
+| `slope` | Tendance linéaire (OLS) sur tout le suivi |
+| `delta` | Variation absolue : dernière − première valeur |
+| `slope_recent` | Tendance sur la 2ème moitié des visites |
+| `accel` | Accélération : moyenne(2ème moitié) − moyenne(1ère moitié) |
+| `obs_rate` | Taux de visites avec mesure renseignée |
+
+**Ratios cliniques validés :** FIB-4, De Ritis (AST/ALT), GGT/ALT, FibroScan×FibroTest.
+
+Entraînement : `survival:cox` XGBoost, 5-fold stratifié, 5 seeds → predictions moyennées.
+
+### 2. K-Mamba SSM (trajectoires temporelles brutes)
+
+Réseau neuronal séquentiel en **C pur** avec rétropropagation end-to-end, basé sur [k-mamba](https://github.com/goldensam777/k-mamba).
+
 ```
-Input: [B, T, 18] — clinical features
-    ↓
-Feature Projection: Linear(18 → D)
-    ↓
-Temporal Encoding: time_gap → Linear(1 → D) → add to features
-    ↓
-MambaBlocks × L: Selective SSM layers (from k-mamba)
-    ↓
-Mean Pooling over time
-    ↓
-Dual Survival Heads:
-    ├── Linear(D → 1) → risk_hepatic
-    └── Linear(D → 1) → risk_death
+Patient [T ≤ 22 visites, 18 features]
+         ↓
+  W_feat [18 → 64]  +  W_time [1 → 64]   (encodage temporel)
+         ↓
+  hidden [T, 64]
+         ↓
+  MambaBlock #1  (état=16, MIMO rank=4)
+         ↓
+  MambaBlock #2
+         ↓
+  Pooling sur la dernière visite valide  (masque de visite)
+         ↓
+  W_hepatic [64 → 1]    W_death [64 → 1]
+         ↓
+  risk_hepatic,  risk_death
 ```
 
-## Loss Functions
+**Loss :** `L = α × ranking_loss + (1−α) × cox_loss`
+- `α_hépatique = 0.2` (événements rares à 3.8%)
+- `α_décès = 0.5`
 
-- **Cox Loss**: Partial likelihood for proportional hazards
-- **Ranking Loss**: Differentiable proxy for C-index
-- **Combined**: `α × cox + (1-α) × ranking` (α = 0.5 default)
+**Entraînement multi-seed :** 3 seeds (42, 123, 777) × 5 folds × 200 epochs → moyenne rank-normalisée.
 
-## Scoring
+| Seed | OOF Score |
+|------|-----------|
+| 42 | 0.8422 |
+| 123 | 0.8720 |
+| 777 | 0.8531 |
+| **Moyenne 3 seeds** | **0.8991** |
 
-Final score: `0.7 × C-index_hepatic + 0.3 × C-index_death`
+La variance inter-seed est importante → toujours moyenner plusieurs seeds.
 
-## Project Structure
+---
+
+## Structure du dépôt
 
 ```
 annitia.kali/
+├── k-mamba/                     # Submodule — bibliothèque SSM (C)
+│   ├── src/mamba_block.c        # MambaBlock MIMO, scan, MUON optimizer
+│   └── include/kmamba.h         # API publique
 ├── include/
-│   └── annitia.h           # Public API
+│   └── annitia.h                # AnnitiaModel, AnnitiaConfig, SurvivalBatch
 ├── src/
-│   ├── annitia.c            # Model implementation
-│   ├── survival_loss.c      # Cox + ranking loss
-│   ├── masld_data.c         # Data loading
-│   ├── mask_utils.c         # Masking utilities
-│   ├── csv_parser.c         # CSV → binary converter
-│   ├── train_main.c         # Training CLI
-│   └── predict_main.c       # Inference CLI
-├── k-mamba/                 # Git submodule (Mamba SSM library)
-├── data/                    # Training/test data (binary)
-├── tests/                   # Unit tests
-├── CMakeLists.txt           # Build configuration
-└── README.md
+│   ├── annitia.c                # Modèle principal (projection + SSM + têtes survie)
+│   ├── survival_loss.c          # Cox partial likelihood + pairwise ranking loss
+│   ├── masld_data.c             # Chargeur binaire MASL
+│   └── mask_utils.c             # Gestion des valeurs manquantes
+├── annitia/                     # Package Python (interface haut niveau)
+│   ├── model.py                 # AnnitiaModel (wraps C via ctypes)
+│   ├── dataset.py               # MasldDataset
+│   ├── train.py                 # Boucle d'entraînement
+│   ├── ssm_kfold.py             # K-fold OOF SSM
+│   ├── xgb.py                   # XGBoost Cox pipeline
+│   ├── metrics.py               # C-index
+│   └── optimizer.py             # GP score surface 4D
+├── data/
+│   ├── train.bin                # 1253 patients (format MASL binaire)
+│   ├── test.bin                 # 423 patients
+│   ├── test_ssm_hep_200ep_3s.npy  # Prédictions SSM 3-seed (hépatique)
+│   ├── test_ssm_dth_200ep_3s.npy  # Prédictions SSM 3-seed (décès)
+│   ├── oof_ssm_hep_200ep_3s.npy   # OOF SSM 3-seed (train)
+│   └── oof_ssm_dth_200ep_3s.npy
+├── notebook_annitia.ipynb       # Notebook de soumission (auto-contenu)
+├── RESULTS.md                   # Journal détaillé des expériences
+└── CMakeLists.txt
 ```
 
-## Dependencies
+---
 
-- **[k-mamba](https://github.com/goldensam777/k-mamba)** — Mamba State Space Models with ND wavefront scan
-  - Includes **[optimatrix](https://github.com/goldensam777/optimatrix)** submodule — AVX2 assembly kernels (GEMM, conv, activations, optimizers)
-- **[OpenBLAS](https://www.openblas.net/)** — BLAS operations
-- (Optional) **CUDA** — GPU kernels via optimatrix CUDA backend
+## Utilisation
+
+### Prérequis
+
+```bash
+sudo apt install cmake gcc libopenblas-dev nasm
+pip install numpy pandas xgboost scikit-learn scipy matplotlib
+```
+
+### 1. Cloner avec sous-modules
+
+```bash
+git clone --recursive https://github.com/goldensam777/annitia.kali
+cd annitia.kali
+```
+
+### 2. Compiler la bibliothèque C
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+```
+
+### 3. Installer le package Python
+
+```bash
+pip install -e .
+```
+
+### 4. Prétraiter les données CSV
+
+```bash
+python -c "
+from annitia.dataset import preprocess_csv
+preprocess_csv(
+    '/path/to/DB-train.csv',
+    '/path/to/DB-test.csv',
+    train_out='data/train.bin',
+    test_out='data/test.bin',
+    norm_out='data/norm.bin',
+)
+"
+```
+
+### 5. Entraîner le SSM (K-fold, multi-seed)
+
+```bash
+# Seed 42
+python -c "
+from annitia.ssm_kfold import train_ssm_kfold
+import numpy as np
+r = train_ssm_kfold('data/train.bin', 'data/test.bin',
+                     epochs=200, seed=42, mimo_rank=4)
+np.save('data/test_ssm_hep_200ep_s42.npy', r['test_hep'])
+np.save('data/test_ssm_dth_200ep_s42.npy', r['test_dth'])
+print(f'OOF score: {r[\"score\"]:.4f}')
+"
+
+# Idem pour seeds 123 et 777, puis moyenner
+```
+
+### 6. Notebook de soumission
+
+Le notebook `notebook_annitia.ipynb` est auto-contenu :
+- Clone ce dépôt via `subprocess.run(['git', 'clone', '--recursive', ...])`
+- Charge les prédictions SSM pré-calculées (`data/test_ssm_*_200ep_3s.npy`)
+- Entraîne XGBoost en direct (~5 minutes)
+- Génère `submission_final.csv`
+
+---
+
+## Format binaire MASL
+
+Les fichiers `.bin` utilisent un format binaire personnalisé :
+
+```
+Header : magic(u32=0x4D41534C) n_patients(u32) T(u32) F(u32) version(u32) pad(u32)
+Par patient :
+  features   [T × F]  float32   (zéro si manquant)
+  mask       [T × F]  float32   (1=valide, 0=manquant)
+  time_gaps  [T]      float32   (jours entre visites)
+  n_visits   int32
+  time_hep   float32
+  event_hep  uint8 + pad uint8
+  time_dth   float32
+  event_dth  uint8 + pad[3] uint8
+```
+
+---
+
+## Bug critique corrigé
+
+**`k-mamba/src/mamba_block.c` ligne 354** (2026-03-26) :
+
+```c
+// AVANT (incorrect) — heap corruption avec mimo_rank > 1 :
+block->b_B = calloc(config->state_size, sizeof(float));
+
+// APRÈS (correct) :
+block->b_B = calloc(config->state_size * R, sizeof(float));
+```
+
+Ce bug provoquait une corruption de heap avec `mimo_rank=4` (R=4, accès indices 0..63 sur 0..15 alloués). Tous les résultats `mimo_rank=4` avant le 2026-03-26 sont invalides.
+
+---
 
 ## Citation
 
 ```bibtex
-@software{annitia2024,
-  author = {YEVI, Mawuli Peniel Samuel},
-  title = {Annitia: Mamba-based Survival Analysis for MASLD},
-  year = {2024},
-  url = {https://github.com/goldensam777/annitia.kali}
+@software{annitia2026,
+  author  = {YEVI, Mawuli Peniel Samuel},
+  title   = {Annitia: K-Mamba State Space Model for MASLD Survival Prediction},
+  year    = {2026},
+  url     = {https://github.com/goldensam777/annitia.kali},
+  note    = {Challenge ANNITIA par TRUSTII/ICAN}
 }
 ```
 
-## Author
+---
 
-**YEVI Mawuli Peniel Samuel** — IFRI-UAC (Bénin)
+*"Optima, immo absoluta perfectio."*
 
-*"Optima, immo absoluta perfectio..."*
+## Licence
 
-## License
-
-MIT License — See [LICENSE](LICENSE) file for details.
+MIT License — voir [LICENSE](LICENSE).

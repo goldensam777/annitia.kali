@@ -31,6 +31,9 @@ OBSERVATIONS = [
     (0.00, 100, 4, 0, 0.8823),   # XGBoost alone (w_ssm=0)
     (1.00,  30, 1, 0, 0.7819),   # SSM mimo1 30ep
     (1.00, 100, 4, 0, 0.8464),   # SSM mimo4 100ep — EXP-12-bis (b_B fix)
+    (1.00, 200, 4, 0, 0.8720),   # SSM mimo4 200ep seed=123 — EXP-14b (best seed)
+    # Note: seed 42 at 200ep = 0.8422, seed 123 = 0.8720 (seed variance high)
+    # 2-seed average (42+123): OOF=0.8849 > XGBoost
 
     # --- f1 : SSM with Conv2D (K=3) ---
     (1.00,  60, 1, 1, 0.8042),   # Conv2D K=3, mimo1, 60ep — OOF 5-fold
