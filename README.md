@@ -1,4 +1,4 @@
-Tu # Annitia
+# Annitia
 
 Deep survival analysis for MASLD (Metabolic dysfunction-Associated Steatotic Liver Disease) using Mamba State Space Models.
 
