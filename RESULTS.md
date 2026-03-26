@@ -209,11 +209,41 @@ Métrique : **Score = 0.7 × C-index hépatique + 0.3 × C-index décès**
 
 ---
 
+### EXP-10 — SSM mimo_rank=4 (19K params) k-fold OOF (50 epochs)
+
+**Motivation :** tester si un modèle plus expressif (mimo_rank=4, 19 393 params vs 6 145)
+améliore l'OOF et rend l'ensemble SSM+XGBoost viable.
+
+| Fold | Hép val | Décès val | Score val |
+|------|---------|-----------|-----------|
+| 1 | **0.8198** | 0.9196 | **0.8497** |
+| 2 | 0.8020 | 0.8592 | 0.8192 |
+| 3 | 0.6973 | 0.8829 | 0.7530 |
+| 4 | 0.7802 | 0.9436 | 0.8292 |
+| 5 | 0.8079 | 0.9430 | 0.8484 |
+| **OOF global** | **0.7646** | **0.9098** | **0.8081** |
+
+Amélioration vs mimo_rank=1 (30 epochs) : **+0.026 points OOF** (0.7819 → 0.8081).
+
+**Sweep OOF SSM(mimo4) + XGBoost :**
+
+| SSM | XGBoost | Score OOF |
+|-----|---------|-----------|
+| 0% | 100% | **0.8823** ← |
+| 20% | 80% | 0.8558 |
+| 100% | 0% | 0.4269 |
+
+> SSM gagne le **fold 1** (0.8497 vs XGBoost 0.8360) → signal complémentaire existe.
+> Mais fold 3 hépatique SSM = 0.697 plombe la moyenne OOF.
+> Conclusion : **100 epochs nécessaires** pour que le SSM soit systématiquement complémentaire.
+
+---
+
 ## TODO final
 | ID | Tâche | Priorité |
 |----|-------|----------|
-| EXP-10 | Notebook qualitatif Trustii (30% du score) | 🔴 URGENT |
-| EXP-11 | SSM 100 epochs (non saturé à 30) — potentiel +0.05 score OOF | moyen |
+| EXP-11 | Notebook qualitatif Trustii (30% du score) | 🔴 URGENT |
+| EXP-12 | SSM mimo_rank=4, 100 epochs — potentiel 0.83+ OOF → ensemble viable | moyen |
 
 ---
 
