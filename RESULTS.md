@@ -239,11 +239,49 @@ Amélioration vs mimo_rank=1 (30 epochs) : **+0.026 points OOF** (0.7819 → 0.8
 
 ---
 
+### EXP-11 — Notebook qualitatif Trustii (soumission 30%)
+
+Notebook standalone `notebook_annitia.ipynb` :
+- Reproduit feature engineering (162 features) + XGBoost Cox 5 seeds
+- Auto-détection chemins CSV Trustii (6 candidats)
+- Correction bug `slope_recent` (indices relatifs)
+- `c_index_numpy()` sans dépendances externes
+- Génère `submission_1.csv` (423 patients)
+
+> ✅ Soumis avec `submission_1.csv`
+
+---
+
+### EXP-12 — SSM mimo_rank=4, 100 epochs (5-fold OOF sur train.bin = 1003 patients)
+
+**Amélioration majeure** : fold 3 hépatique 0.697 → **0.896** (+0.199 !)
+
+| Fold | Hép val | Décès val | Score val |
+|------|---------|-----------|-----------|
+| 1 | **0.9048** | 0.9229 | **0.9102** |
+| 2 | 0.8555 | 0.8943 | 0.8671 |
+| 3 | **0.8960** | 0.8812 | **0.8916** |
+| 4 | 0.7183 | 0.9014 | 0.7733 |
+| 5 | 0.8340 | 0.9273 | 0.8620 |
+| **OOF global** | **0.8244** | **0.8820** | **0.8417** |
+
+Progression vs 50 epochs : **+0.034 points OOF** (0.8081 → 0.8417).
+
+**Corrélation SSM / XGBoost sur test (423 patients) :**
+- Hépatique : **corr = 0.142** (quasi-indépendants)
+- Décès     : **corr = −0.014** (indépendants)
+
+> Signal très complémentaire — théoriquement optimal pour un ensemble.
+
+**Soumission_2 créée** : 30% SSM(100ep) + 70% XGBoost Cox multi-seed → `data/submission_2.csv`
+
+---
+
 ## TODO final
 | ID | Tâche | Priorité |
 |----|-------|----------|
-| EXP-11 | Notebook qualitatif Trustii (30% du score) | 🔴 URGENT |
-| EXP-12 | SSM mimo_rank=4, 100 epochs — potentiel 0.83+ OOF → ensemble viable | moyen |
+| SUB-2 | Soumettre submission_2.csv (ensemble SSM+XGB) pour valider l'apport du SSM | moyen |
+| EXP-13 | SSM 150+ epochs sur full 1253 patients (data/full/train.bin) — fold 4 = 0.773 cible | moyen |
 
 ---
 
