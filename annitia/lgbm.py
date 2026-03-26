@@ -106,16 +106,87 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         for col in STAT_COLS:
             feat[col] = float(row[col]) if col in row.index and not pd.isna(row[col]) else np.nan
 
-        # Ratios cliniques utiles pour MASLD
-        alt_last = feat.get("ALT_last", np.nan)
-        ast_last = feat.get("AST_last", np.nan)
-        if not (np.isnan(alt_last) or np.isnan(ast_last) or alt_last == 0):
-            feat["AST_ALT_ratio"] = ast_last / alt_last
-        else:
-            feat["AST_ALT_ratio"] = np.nan
-
+        # --- Ratios cliniques MASLD ---
+        alt_last  = feat.get("ALT_last",      np.nan)
+        ast_last  = feat.get("AST_last",      np.nan)
+        ggt_last  = feat.get("GGT_last",      np.nan)
+        bili_last = feat.get("bilirubin_last", np.nan)
+        plt_last  = feat.get("plt_last",      np.nan)
         fibro_last = feat.get("FibroScan_last", np.nan)
+        ftest_last = feat.get("FibroTest_last", np.nan)
+        bmi_last   = feat.get("BMI_last",      np.nan)
+
+        # AST/ALT (De Ritis) > 1 → fibrose avancée
+        feat["AST_ALT_ratio"] = (ast_last / alt_last
+            if not any(np.isnan([ast_last, alt_last])) and alt_last != 0 else np.nan)
+
+        # GGT/ALT → lésion hépatocellulaire vs cholestase
+        feat["GGT_ALT_ratio"] = (ggt_last / alt_last
+            if not any(np.isnan([ggt_last, alt_last])) and alt_last != 0 else np.nan)
+
+        # FIB-4 index : (âge × AST) / (plt × √ALT)  — marqueur fibrose validé MASLD
+        if not any(np.isnan([age_v1, ast_last, plt_last, alt_last])) and plt_last > 0 and alt_last > 0:
+            feat["FIB4"] = (age_v1 * ast_last) / (plt_last * np.sqrt(alt_last))
+        else:
+            feat["FIB4"] = np.nan
+
+        # FibroScan × FibroTest (deux mesures de fibrose — concordance)
+        feat["FibroScan_x_FibroTest"] = (fibro_last * ftest_last
+            if not any(np.isnan([fibro_last, ftest_last])) else np.nan)
+
+        # FibroScan / FibroTest — ratio discordance
+        feat["FibroScan_FibroTest_ratio"] = (fibro_last / ftest_last
+            if not any(np.isnan([fibro_last, ftest_last])) and ftest_last != 0 else np.nan)
+
+        # Bilirubin × AST — marqueur d'insuffisance hépatique
+        feat["bili_x_AST"] = (bili_last * ast_last
+            if not any(np.isnan([bili_last, ast_last])) else np.nan)
+
+        # BMI × FibroScan — obésité + fibrose combinés
         feat["fibro_x_age"] = fibro_last * age_v1 if not np.isnan(fibro_last) else np.nan
+        feat["BMI_x_fibro"]  = (bmi_last * fibro_last
+            if not any(np.isnan([bmi_last, fibro_last])) else np.nan)
+
+        # --- Patterns de données manquantes ---
+        # Proportion de visites avec mesure (≠ proportion NaN)
+        for prefix, name in zip(DYN_PREFIXES, DYN_NAMES):
+            n_obs = feat.get(f"{name}_n_obs", 0)
+            feat[f"{name}_obs_rate"] = n_obs / N_VISITS
+
+        # Nombre de features mesurées à la dernière visite
+        last_v = n_visits  # indice de la dernière visite
+        n_measured_last = sum(
+            1 for prefix, name in zip(DYN_PREFIXES, DYN_NAMES)
+            if f"{prefix}{last_v}" in df.columns
+            and not pd.isna(row.get(f"{prefix}{last_v}", np.nan))
+        ) if n_visits > 0 else 0
+        feat["n_features_last_visit"] = n_measured_last
+
+        # --- Accélération temporelle (slope des slopes) ---
+        # Indique si la dégradation s'accélère
+        for prefix, name in zip(DYN_PREFIXES, DYN_NAMES):
+            vals = np.array([
+                float(row[f"{prefix}{v}"]) if f"{prefix}{v}" in row.index
+                and not pd.isna(row[f"{prefix}{v}"]) else np.nan
+                for v in range(1, N_VISITS + 1)
+            ])
+            # Slope sur la 2e moitié des visites vs 1ère moitié
+            valid_idx = np.where(~np.isnan(vals))[0]
+            if len(valid_idx) >= 4:
+                mid = len(valid_idx) // 2
+                first_half = vals[valid_idx[:mid]]
+                second_half = vals[valid_idx[mid:]]
+                feat[f"{name}_slope_recent"] = _slope(
+                    np.concatenate([np.full(mid, np.nan), second_half
+                                    if len(second_half) > 1 else np.array([np.nan])])
+                )
+                feat[f"{name}_accel"] = (
+                    float(second_half.mean() - first_half.mean())
+                    if len(first_half) > 0 and len(second_half) > 0 else np.nan
+                )
+            else:
+                feat[f"{name}_slope_recent"] = np.nan
+                feat[f"{name}_accel"]         = np.nan
 
         rows.append(feat)
 
