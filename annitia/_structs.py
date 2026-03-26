@@ -29,6 +29,8 @@ class AnnitiaConfig(ctypes.Structure):
         ("dt_scale",   ctypes.c_float),
         ("dt_min",     ctypes.c_float),
         ("dt_max",     ctypes.c_float),
+        ("use_conv2d", ctypes.c_int),
+        ("conv2d_K",   ctypes.c_size_t),
     ]
 
 

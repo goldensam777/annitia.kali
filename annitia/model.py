@@ -23,15 +23,17 @@ class AnnitiaModel:
 
     def __init__(
         self,
-        dim:       int   = 64,
-        state:     int   = 16,
-        layers:    int   = 2,
-        mimo_rank: int   = 1,
-        n_features: int  = N_FEATURES,
-        seq_len:   int   = MAX_TIMESTEPS,
-        dt_scale:  float = 1.0,
-        dt_min:    float = 0.001,
-        dt_max:    float = 0.1,
+        dim:        int   = 64,
+        state:      int   = 16,
+        layers:     int   = 2,
+        mimo_rank:  int   = 1,
+        n_features: int   = N_FEATURES,
+        seq_len:    int   = MAX_TIMESTEPS,
+        dt_scale:   float = 1.0,
+        dt_min:     float = 0.001,
+        dt_max:     float = 0.1,
+        use_conv2d: int   = 0,
+        conv2d_K:   int   = 3,
     ):
         cfg = AnnitiaConfig(
             n_features = n_features,
@@ -43,6 +45,8 @@ class AnnitiaModel:
             dt_scale   = dt_scale,
             dt_min     = dt_min,
             dt_max     = dt_max,
+            use_conv2d = use_conv2d,
+            conv2d_K   = conv2d_K,
         )
         ptr = lib.annitia_create(ctypes.byref(cfg))
         if not ptr:

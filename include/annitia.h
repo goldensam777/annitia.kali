@@ -34,6 +34,9 @@ typedef struct {
     float  dt_scale;
     float  dt_min;
     float  dt_max;
+    /* Conv2D preprocessing on raw [T, F] feature matrix */
+    int    use_conv2d;   /* 1 = enable Conv2D preprocessing layer       */
+    size_t conv2d_K;     /* kernel size along each axis (default 3)     */
 } AnnitiaConfig;
 
 /* ------------------------------------------------------------------ */
@@ -55,6 +58,15 @@ typedef struct {
     /* Têtes de survie (dual output) */
     float *W_hepatic;    /* [dim, 1] — risque événement hépatique       */
     float *W_death;      /* [dim, 1] — risque décès toutes causes       */
+
+    /* Conv2D preprocessing layer (optional, cfg.use_conv2d=1)
+     * Operates on raw [T, F] feature matrix before W_feat projection.
+     * convnd: ndims=2, dims=[T,F], D=1, K=conv2d_K
+     * kernel: [2 * conv2d_K] (one K-vector per axis, D=1 so scalar) */
+    float *conv2d_kernel;   /* [2 * conv2d_K * 1] */
+    float *conv2d_bias;     /* [1] */
+    float *m_conv2d_kernel, *v_conv2d_kernel;
+    float *m_conv2d_bias,   *v_conv2d_bias;
 
     /* État d'entraînement */
     int for_training;

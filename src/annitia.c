@@ -48,6 +48,19 @@ AnnitiaModel *annitia_create(const AnnitiaConfig *cfg) {
     size_t D   = cfg->dim;
     size_t L   = cfg->n_layers;
 
+    /* Conv2D preprocessing layer (optional) */
+    if (cfg->use_conv2d) {
+        size_t K = cfg->conv2d_K ? cfg->conv2d_K : 3;
+        m->cfg.conv2d_K = K;
+        /* kernel: ndims=2, K per axis, D=1 => 2*K floats */
+        m->conv2d_kernel   = malloc(2 * K * sizeof(float));
+        m->conv2d_bias     = calloc(1, sizeof(float));
+        m->m_conv2d_kernel = calloc(2 * K, sizeof(float));
+        m->v_conv2d_kernel = calloc(2 * K, sizeof(float));
+        m->m_conv2d_bias   = calloc(1, sizeof(float));
+        m->v_conv2d_bias   = calloc(1, sizeof(float));
+    }
+
     /* Feature projection */
     m->W_feat    = malloc(F * D * sizeof(float));
     m->b_feat    = calloc(D, sizeof(float));
@@ -89,6 +102,11 @@ AnnitiaModel *annitia_create(const AnnitiaConfig *cfg) {
 
 void annitia_free(AnnitiaModel *m) {
     if (!m) return;
+    if (m->cfg.use_conv2d) {
+        free(m->conv2d_kernel);   free(m->conv2d_bias);
+        free(m->m_conv2d_kernel); free(m->v_conv2d_kernel);
+        free(m->m_conv2d_bias);   free(m->v_conv2d_bias);
+    }
     free(m->W_feat);    free(m->b_feat);  free(m->W_time);
     free(m->W_hepatic); free(m->W_death);
     for (size_t i = 0; i < m->cfg.n_layers; i++)
@@ -110,6 +128,20 @@ void annitia_init(AnnitiaModel *m, unsigned long seed) {
     srand((unsigned int)seed);
     size_t F = m->cfg.n_features;
     size_t D = m->cfg.dim;
+
+    /* Conv2D kernel: near-identity init (center=1, others=small noise)
+     * so the layer starts transparent and learns incrementally. */
+    if (m->cfg.use_conv2d) {
+        size_t K = m->cfg.conv2d_K;
+        size_t mid = K / 2;
+        for (size_t ax = 0; ax < 2; ax++) {
+            for (size_t k = 0; k < K; k++) {
+                float val = (k == mid) ? 1.0f : 0.01f * (2.0f * randf() - 1.0f);
+                m->conv2d_kernel[ax * K + k] = val;
+            }
+        }
+        m->conv2d_bias[0] = 0.0f;
+    }
 
     xavier_uniform(m->W_feat,    F * D, F, D);
     xavier_uniform(m->W_time,    D,     1, D);
@@ -158,13 +190,34 @@ static void forward_patient(AnnitiaModel *m,
     size_t F = m->cfg.n_features;
     size_t D = m->cfg.dim;
 
-    /* Étape 1 : Feature projection → hidden_in[T, D]
-     * hidden_in[t] = W_feat^T @ features_p[t] + b_feat
-     * + W_time * time_gaps_p[t]                        */
+    /* Step 0 (optional): Conv2D on raw [T, F] feature matrix
+     * treats the patient matrix as a 2D image [T x F] with D=1 channel.
+     * Learns temporal smoothing AND cross-feature interactions jointly. */
+    float *conv2d_out = NULL;
+    const float *feat_src = features_p;
+    if (m->cfg.use_conv2d) {
+        long conv2d_dims[2] = {(long)T, (long)F};
+        conv2d_out = malloc(T * F * sizeof(float));
+        ConvNDParams cp = {
+            .input  = (float *)features_p,
+            .kernel = m->conv2d_kernel,
+            .bias   = m->conv2d_bias,
+            .output = conv2d_out,
+            .dims   = conv2d_dims,
+            .ndims  = 2,
+            .D      = 1,
+            .K      = (long)m->cfg.conv2d_K,
+        };
+        convnd(&cp, CONVND_FORWARD, NULL);
+        feat_src = conv2d_out;
+    }
+
+    /* Step 1: Feature projection -> hidden_in[T, D]
+     * hidden_in[t] = W_feat^T @ feat_src[t] + b_feat + W_time * time_gap */
     float *hidden_in = buf_tmp;  /* [T, D] */
 
     for (size_t t = 0; t < T; t++) {
-        const float *x = features_p + t * F;
+        const float *x = feat_src + t * F;
         float       *h = hidden_in  + t * D;
 
         /* h = W_feat^T @ x  (gemv : M=D, K=F) */
@@ -198,10 +251,12 @@ static void forward_patient(AnnitiaModel *m,
     if (cur != hidden_out)
         memcpy(hidden_out, cur, T * D * sizeof(float));
 
-    /* Étape 3 : Pooling — last valid timestep */
+    /* Step 3: Pooling — last valid timestep */
     float tmask[ANNITIA_MAX_TIMESTEPS];
     mask_timestep(mask_p, tmask, T, F);
     mask_last_pool(hidden_out, tmask, patient_vec, T, D);
+
+    free(conv2d_out);  /* NULL-safe: free(NULL) is a no-op */
 }
 
 /* ------------------------------------------------------------------ */
@@ -255,13 +310,21 @@ float annitia_train_step(AnnitiaModel *m, const SurvivalBatch *batch) {
     size_t D  = m->cfg.dim;
     size_t NL = m->cfg.n_layers;
 
-    /* ---- Phase 1 : Forward avec stockage des activations ---- */
+    /* ---- Phase 1 : Forward with activation storage ---- */
 
     /* acts[b][(NL+1)*T*D] : acts[b][i*T*D] = input to layer i (i=0..NL)
      * acts[b][NL*T*D]     = final SSM output                          */
     float **acts = malloc(B * sizeof(float *));
     for (size_t b = 0; b < B; b++)
         acts[b] = malloc((NL + 1) * T * D * sizeof(float));
+
+    /* conv2d_acts[b][T*F]: conv2D output per patient (needed for W_feat backward) */
+    float **conv2d_acts = NULL;
+    if (m->cfg.use_conv2d) {
+        conv2d_acts = malloc(B * sizeof(float *));
+        for (size_t b = 0; b < B; b++)
+            conv2d_acts[b] = malloc(T * F * sizeof(float));
+    }
 
     float *patient_vec = malloc(D * sizeof(float));
     float *risk_hepatic = malloc(B * sizeof(float));
@@ -274,10 +337,28 @@ float annitia_train_step(AnnitiaModel *m, const SurvivalBatch *batch) {
         const float *tgaps = batch->time_gaps + b * T;
         float *a0 = acts[b];  /* acts[0] = feature proj output */
 
+        /* Step 0 (optional): Conv2D on raw [T, F] */
+        const float *feat_src = feat;
+        if (m->cfg.use_conv2d) {
+            long conv2d_dims[2] = {(long)T, (long)F};
+            ConvNDParams cp = {
+                .input  = (float *)feat,
+                .kernel = m->conv2d_kernel,
+                .bias   = m->conv2d_bias,
+                .output = conv2d_acts[b],
+                .dims   = conv2d_dims,
+                .ndims  = 2,
+                .D      = 1,
+                .K      = (long)m->cfg.conv2d_K,
+            };
+            convnd(&cp, CONVND_FORWARD, NULL);
+            feat_src = conv2d_acts[b];
+        }
+
         /* Feature projection */
         for (size_t t = 0; t < T; t++) {
-            const float *x = feat  + t * F;
-            float       *h = a0   + t * D;
+            const float *x = feat_src + t * F;
+            float       *h = a0       + t * D;
             gemv_rowmajor(m->W_feat, x, h, (int)D, (int)F);
             float tg  = tgaps[t];
             float any = 0.0f;
@@ -379,9 +460,11 @@ float annitia_train_step(AnnitiaModel *m, const SurvivalBatch *batch) {
         }
         /* dcur = d_hidden_in[T,D] = gradient w.r.t. feature projection output */
 
-        /* Backward through feature projection */
+        /* Backward through feature projection
+         * Use conv2D output (feat_src) as input to W_feat if conv2D is active */
+        const float *feat_src_bwd = m->cfg.use_conv2d ? conv2d_acts[b] : feat;
         for (size_t t = 0; t < T; t++) {
-            const float *x  = feat + t * F;
+            const float *x  = feat_src_bwd + t * F;
             const float *dh = dcur + t * D;
             float any = 0.0f;
             for (size_t f = 0; f < F; f++) any += mask[t * F + f];
@@ -394,6 +477,65 @@ float annitia_train_step(AnnitiaModel *m, const SurvivalBatch *batch) {
                 gb_feat[d]  += dh[d];
                 gW_time[d]  += dh[d] * tgaps[t];
             }
+        }
+
+        /* Backward through Conv2D (if enabled)
+         * d_filtered[t,f] = sum_d dcur[t,d] * W_feat[d,f]
+         * then call convnd backward to get dkernel and dbias */
+        if (m->cfg.use_conv2d) {
+            float *d_filtered = calloc(T * F, sizeof(float));
+            float *d_conv_in  = calloc(T * F, sizeof(float));  /* not used further */
+
+            /* Compute d_filtered: backprop through W_feat linear layer */
+            for (size_t t = 0; t < T; t++) {
+                float any = 0.0f;
+                for (size_t f = 0; f < F; f++) any += mask[t * F + f];
+                if (any < 0.5f) continue;
+                const float *dh = dcur + t * D;
+                for (size_t f = 0; f < F; f++) {
+                    float acc = 0.0f;
+                    for (size_t d = 0; d < D; d++)
+                        acc += dh[d] * m->W_feat[d * F + f];
+                    d_filtered[t * F + f] = acc;
+                }
+            }
+
+            long conv2d_dims[2] = {(long)T, (long)F};
+            float g_kernel[2 * 64] = {0};  /* max K=32 per axis, stack alloc */
+            float g_bias[1] = {0};
+            size_t K = m->cfg.conv2d_K;
+
+            /* Use stack buffer if K <= 32, else heap */
+            float *gk = (K <= 32) ? g_kernel : calloc(2 * K, sizeof(float));
+            ConvNDParams cp_bwd = {
+                .input   = (float *)feat,       /* original raw features [T*F,1] */
+                .kernel  = m->conv2d_kernel,
+                .bias    = m->conv2d_bias,
+                .output  = NULL,
+                .dy      = d_filtered,
+                .dinput  = d_conv_in,
+                .dkernel = gk,
+                .dbias   = g_bias,
+                .dims    = conv2d_dims,
+                .ndims   = 2,
+                .D       = 1,
+                .K       = (long)K,
+            };
+            convnd(&cp_bwd, CONVND_BACKWARD, NULL);
+
+            /* Accumulate into persistent gradient buffers using Adam */
+            adam_update(m->conv2d_kernel, gk,
+                        m->m_conv2d_kernel, m->v_conv2d_kernel,
+                        2 * K, m->lr, m->weight_decay,
+                        0.9f, 0.999f, 1e-8f, m->step + 1);
+            adam_update(m->conv2d_bias, g_bias,
+                        m->m_conv2d_bias, m->v_conv2d_bias,
+                        1, m->lr, m->weight_decay,
+                        0.9f, 0.999f, 1e-8f, m->step + 1);
+
+            if (K > 32) free(gk);
+            free(d_filtered);
+            free(d_conv_in);
         }
     }
 
@@ -428,6 +570,10 @@ float annitia_train_step(AnnitiaModel *m, const SurvivalBatch *batch) {
     /* Cleanup */
     for (size_t b = 0; b < B; b++) free(acts[b]);
     free(acts);
+    if (conv2d_acts) {
+        for (size_t b = 0; b < B; b++) free(conv2d_acts[b]);
+        free(conv2d_acts);
+    }
     free(patient_vec);
     free(risk_hepatic); free(risk_death);
     free(g_hepatic);    free(g_death);
@@ -455,6 +601,11 @@ int annitia_save(const AnnitiaModel *m, const char *path) {
 
     size_t F = m->cfg.n_features;
     size_t D = m->cfg.dim;
+    if (m->cfg.use_conv2d) {
+        size_t K = m->cfg.conv2d_K;
+        fwrite(m->conv2d_kernel, sizeof(float), 2 * K, f);
+        fwrite(m->conv2d_bias,   sizeof(float), 1,     f);
+    }
     fwrite(m->W_feat,    sizeof(float), F * D, f);
     fwrite(m->b_feat,    sizeof(float), D,     f);
     fwrite(m->W_time,    sizeof(float), D,     f);
@@ -505,6 +656,13 @@ AnnitiaModel *annitia_load(const char *path, int for_training,
 
     size_t F = cfg.n_features;
     size_t D = cfg.dim;
+    if (cfg.use_conv2d) {
+        size_t K = cfg.conv2d_K;
+        if (fread(m->conv2d_kernel, sizeof(float), 2 * K, f) != 2 * K ||
+            fread(m->conv2d_bias,   sizeof(float), 1,     f) != 1) {
+            annitia_free(m); fclose(f); return NULL;
+        }
+    }
     fread(m->W_feat,    sizeof(float), F * D, f);
     fread(m->b_feat,    sizeof(float), D,     f);
     fread(m->W_time,    sizeof(float), D,     f);

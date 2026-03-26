@@ -252,36 +252,71 @@ Notebook standalone `notebook_annitia.ipynb` :
 
 ---
 
-### EXP-12 — SSM mimo_rank=4, 100 epochs (5-fold OOF sur train.bin = 1003 patients)
+### EXP-12 — SSM mimo_rank=4, 100 epochs [INVALIDATED — b_B allocation bug]
 
-**Amélioration majeure** : fold 3 hépatique 0.697 → **0.896** (+0.199 !)
+> ⚠️ **RÉSULTATS INVALIDES** : bug découvert dans k-mamba/src/mamba_block.c ligne 354.
+> `b_B` et `b_C` (BCNorm biases) alloués avec `state_size` floats au lieu de `state_size * R_rank`.
+> Avec mimo_rank=4, R_rank=4 → accès hors limites → heap corruption → résultats non fiables.
+> Score OOF 0.8417 produit par un modèle avec des biais corrompus.
+
+**Fix appliqué :** `calloc(config->state_size * R, sizeof(float))` dans `mamba_block_create`.
+
+---
+
+### EXP-12-bis — SSM mimo_rank=4, 100 epochs (après correction b_B bug)
+
+**Correction :** allocation correcte `b_B[state_size × R_rank]`, résultats fiables.
 
 | Fold | Hép val | Décès val | Score val |
 |------|---------|-----------|-----------|
-| 1 | **0.9048** | 0.9229 | **0.9102** |
-| 2 | 0.8555 | 0.8943 | 0.8671 |
-| 3 | **0.8960** | 0.8812 | **0.8916** |
-| 4 | 0.7183 | 0.9014 | 0.7733 |
-| 5 | 0.8340 | 0.9273 | 0.8620 |
-| **OOF global** | **0.8244** | **0.8820** | **0.8417** |
+| 1 | 0.8874 | 0.9354 | **0.9018** |
+| 2 | 0.8670 | 0.9581 | 0.8944 |
+| 3 | **0.9101** | 0.8812 | **0.9015** |
+| 4 | 0.6841 | 0.9606 | 0.7670 |
+| 5 | 0.8133 | 0.9256 | 0.8470 |
+| **OOF global** | **0.8152** | **0.9193** | **0.8464** |
 
-Progression vs 50 epochs : **+0.034 points OOF** (0.8081 → 0.8417).
+> ✅ SSM OOF = **0.8464** (valide). Folds 1, 2, 3 > 0.89 — modèle fort sur ces plis.
+> Fold 4 SSM = 0.767 (instable). Complémentarité avec XGBoost à exploiter.
 
-**Corrélation SSM / XGBoost sur test (423 patients) :**
-- Hépatique : **corr = 0.142** (quasi-indépendants)
-- Décès     : **corr = −0.014** (indépendants)
+**Prédictions sauvegardées :**
+- OOF : `data/oof_ssm_hep.npy`, `data/oof_ssm_dth.npy`
+- Test : `data/test_ssm_hep.npy`, `data/test_ssm_dth.npy`
 
-> Signal très complémentaire — théoriquement optimal pour un ensemble.
+**Soumissions créées (rank-average SSM + XGBoost) :**
+- `submission_ssm10_xgb90_v2.csv` (10% SSM)
+- `submission_ssm15_xgb85_v2.csv` (15% SSM)
+- `submission_ssm20_xgb80_v2.csv` (20% SSM) — recommandé
+- `submission_ssm25_xgb75_v2.csv` (25% SSM)
+- `submission_ssm30_xgb70_v2.csv` (30% SSM)
 
-**Soumission_2 créée** : 30% SSM(100ep) + 70% XGBoost Cox multi-seed → `data/submission_2.csv`
+---
+
+### EXP-13 — SSM Conv2D + mimo_rank=4, 100 epochs
+
+**Motivation :** tester Conv2D preprocessing sur la matrice [T×F] patient.
+
+| Fold | Hép val | Décès val | Score val |
+|------|---------|-----------|-----------|
+| 1 | 0.8550 | 0.9479 | 0.8829 |
+| 2 | 0.7455 | 0.9009 | 0.7921 |
+| 3 | 0.7689 | 0.7343 | 0.7586 |
+| 4 | 0.8331 | 0.9409 | 0.8654 |
+| 5 | 0.8838 | 0.9372 | **0.8998** |
+| **OOF global** | **0.7903** | **0.8980** | **0.8226** |
+
+> ❌ Conv2D **nuit** aux performances : 0.8226 < 0.8464 (SSM sans Conv2D).
+> La couche Conv2D sur [T=22, F=18] ne capture pas de structure 2D utile ici.
+> Architecture abandonnée pour ce problème.
 
 ---
 
 ## TODO final
 | ID | Tâche | Priorité |
 |----|-------|----------|
-| SUB-2 | Soumettre submission_2.csv (ensemble SSM+XGB) pour valider l'apport du SSM | moyen |
-| EXP-13 | SSM 150+ epochs sur full 1253 patients (data/full/train.bin) — fold 4 = 0.773 cible | moyen |
+| SUB-3 | Soumettre `submission_ssm20_xgb80_v2.csv` pour valider l'apport du SSM corrigé | haut |
+| EXP-14 | SSM 150-200 epochs (mimo4, no conv2d) — exploration saturation | moyen |
+| EXP-15 | Ensemble optimal sur OOF avec XGBoost (quand CSV data accessible) | moyen |
 
 ---
 

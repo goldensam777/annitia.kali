@@ -93,13 +93,16 @@ def _write_bin(path: str, data: dict, indices: np.ndarray):
 # ---------------------------------------------------------------------------
 
 def train_ssm_kfold(
-    full_bin:  str,
-    test_bin:  str,
-    out_dir:   str = "data",
-    n_folds:   int = 5,
-    epochs:    int = 30,
-    seed:      int = 42,
-    verbose:   bool = True,
+    full_bin:   str,
+    test_bin:   str,
+    out_dir:    str  = "data",
+    n_folds:    int  = 5,
+    epochs:     int  = 30,
+    seed:       int  = 42,
+    verbose:    bool = True,
+    use_conv2d: int  = 0,
+    conv2d_K:   int  = 3,
+    mimo_rank:  int  = 1,
 ) -> dict:
     """
     Entraîne le SSM K-Mamba en k-fold et retourne les prédictions OOF + test.
@@ -156,7 +159,9 @@ def train_ssm_kfold(
                 layers     = 2,
                 n_features = F,
                 seq_len    = T,
-                mimo_rank  = 1,
+                mimo_rank  = mimo_rank,
+                use_conv2d = use_conv2d,
+                conv2d_K   = conv2d_K,
             )
             model.init(seed=seed + fold)
             model.enable_training(lr=3e-4, wd=1e-4, mu=0.9,
