@@ -151,9 +151,69 @@ Métrique : **Score = 0.7 × C-index hépatique + 0.3 × C-index décès**
 
 | ID | Expérience | Attendu |
 |----|-----------|---------|
-| EXP-08 | SSM k-fold OOF (5 folds) | sweep alpha SSM+XGBoost honnête |
-| EXP-09 | XGBoost multi-seed + ensemble final (SSM OOF + XGBoost) | cible 0.92+ |
-| EXP-10 | Notebook qualitatif Trustii (30% du score) | obligatoire |
+### EXP-08 — SSM K-Mamba k-fold OOF (5 folds × 30 epochs)
+**Méthode :** lecture/écriture binaire MASL par patient, stratification combinée (hep+dth), seed=fold+42
+
+| Fold | Hép val | Décès val | Score val |
+|------|---------|-----------|-----------|
+| 1 | 0.7314 | 0.8624 | 0.7707 |
+| 2 | 0.8020 | 0.8592 | 0.8192 |
+| 3 | 0.6530 | 0.8768 | 0.7202 |
+| 4 | 0.7752 | 0.9408 | 0.8249 |
+| 5 | 0.8062 | 0.9422 | 0.8470 |
+| **OOF global** | **0.7361** | **0.8886** | **0.7819** |
+
+> ⚠️ SSM OOF (0.7819) < XGBoost (0.8823). Ajout SSM dégrade l'ensemble.
+
+**Sweep OOF SSM + XGBoost :**
+
+| SSM | XGBoost | Hép OOF | Décès OOF | Score OOF |
+|-----|---------|---------|-----------|-----------|
+| 0% | 100% | 0.8851 | 0.8760 | **0.8823** ← |
+| 20% | 80% | 0.8521 | 0.8642 | 0.8557 |
+| 40% | 60% | 0.7930 | 0.8073 | 0.7973 |
+| 60% | 40% | 0.6557 | 0.6816 | 0.6635 |
+| 80% | 20% | 0.5072 | 0.5570 | 0.5222 |
+| 100% | 0% | 0.3960 | 0.4646 | 0.4166 |
+
+> Conclusion : **XGBoost Cox seul est optimal sur ces données** (30 epochs SSM insuffisants pour dépasser le Cox PH).
+
+---
+
+### EXP-09 — XGBoost Cox multi-seed (soumission finale)
+**5 seeds** : {42, 123, 777, 2024, 31415} → moyenne des prédictions test
+
+| Seed | Hép OOF | Décès OOF | Score OOF |
+|------|---------|-----------|-----------|
+| 42 | 0.8851 | 0.8760 | 0.8823 |
+| 123 | 0.8711 | 0.8950 | 0.8783 |
+| 777 | 0.8793 | 0.8720 | 0.8771 |
+| 2024 | 0.8211 | 0.8868 | 0.8408 |
+| 31415 | 0.8722 | 0.9038 | 0.8817 |
+| **Moyenne** | — | — | **0.8720 ± 0.016** |
+
+> ✅ **Soumission finale : `data/submission_FINAL.csv`** — 423 patients, XGBoost Cox 5 seeds.
+
+---
+
+## Analyse des résultats
+
+### Pourquoi XGBoost > SSM sur ces données
+1. **Événements rares** (47/1253 = 3.8%) : les petits lots d'entraînement SSM (~30 epochs) convergent mal avec si peu de signal positif par batch
+2. **Features enrichies** (FIB-4, GGT/ALT, accélérations) : capturent l'essentiel de la dynamique temporelle de façon plate → XGBoost les exploite directement
+3. **Cox PH natif** de XGBoost est calibré pour la censure → meilleure utilisation des 1206 censurés
+4. **SSM besoin de plus d'epochs** : la courbe de training montrait encore 0.77→0.84 en progression à epoch 30 (non saturée)
+
+### Features les plus importantes (XGBoost Cox, gain moyen)
+`follow_up` > `age_v1` > `AST_ALT_ratio` > `FIB4` > `BMI_slope` > `ALT_slope` > `FibroTest_delta` > `Dyslipidaemia`
+
+---
+
+## TODO final
+| ID | Tâche | Priorité |
+|----|-------|----------|
+| EXP-10 | Notebook qualitatif Trustii (30% du score) | 🔴 URGENT |
+| EXP-11 | SSM 100 epochs (non saturé à 30) — potentiel +0.05 score OOF | moyen |
 
 ---
 

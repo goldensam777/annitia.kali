@@ -129,10 +129,11 @@ def sweep_alpha(
         ci_d  = _ci(ens_d.astype(np.float32), times_dth.astype(np.float32), events_dth.astype(np.uint8))
         score = 0.7 * ci_h + 0.3 * ci_d
 
+        flag = " ←" if score > best_score else ""
+        print(f"  {w} → hep={ci_h:.4f} dth={ci_d:.4f} score={score:.4f}{flag}")
         if score > best_score:
             best_score   = score
             best_weights = w
-            print(f"  {w} → hep={ci_h:.4f} dth={ci_d:.4f} score={score:.4f} ←")
 
     print(f"\nMeilleurs poids : {best_weights} → score OOF = {best_score:.4f}")
     return best_weights
