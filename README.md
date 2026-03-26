@@ -38,7 +38,7 @@ The model processes irregular time-series clinical data using **Mamba State Spac
 ### 1. Clone with Submodules
 
 ```bash
-git clone --recursive https://github.com/goldensam777/annitia.kali
+git clone --recursive https://github.com/goldensam777/annitia.kali.git
 cd annitia.kali
 ```
 
