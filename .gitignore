@@ -1,0 +1,36 @@
+# Compiled / build
+build/
+*.o
+*.a
+*.so
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Binary model / data files (large, not useful on GitHub)
+data/*.bin
+data/full/
+catboost_info/
+
+# Intermediate submissions (keep only submission_1 and submission_2)
+data/submission.csv
+data/submission_FINAL.csv
+data/submission_final.csv
+data/submission_final_v2.csv
+data/submission_catboost.csv
+data/submission_ensemble.csv
+data/submission_ensemble_final.csv
+data/submission_lgbm.csv
+data/submission_lgbm_multiseed.csv
+data/submission_ssm3_xgb7.csv
+data/submission_ssm4_xgb6.csv
+data/submission_ssm5_xgb5.csv
+data/submission_ssm6_xgb4.csv
+data/submission_xgb.csv
+data/submission_xgb_multiseed.csv
+
+# Trustii internal tutorial (not our code)
+making_your_first_submission_on_trustii_io.ipynb
